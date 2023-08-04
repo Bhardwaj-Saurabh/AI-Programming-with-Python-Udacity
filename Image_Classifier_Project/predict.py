@@ -6,11 +6,12 @@ from utils import load_checkpoint, load_cat_names
 
 def parse_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument('checkpoint', action='store', default='../check.pth')
     parser.add_argument('--top_k', dest='top_k', default='5')
-    parser.add_argument('--pathname', dest='pathname', default='flowers/test/1/image_06743.jpg')
+    parser.add_argument('--pathname', dest='pathname', default='../flowers/test/1/image_06743.jpg')
     parser.add_argument('--category_names', dest='category_names', default='cat_to_name.json')
     parser.add_argument('--gpu', action='store', default='gpu')
+    parser.add_argument('--save_path', type = str, default='./checkpoint.pth',
+                    help = 'Path to the file of the trained model.')
     return parser.parse_args()
 
 def process_image(image):
@@ -30,7 +31,7 @@ def process_image(image):
     image = adjustments(image_pil)
     return image
 
-def predict(image_path, model, device, topk=5):
+def predict(image_path, model, device, cat_to_name, topk=5):
     ''' Predict the class (or classes) of an image using a trained deep learning model.
     '''
     # TODO: Implement the code to predict the class from an image file
@@ -39,7 +40,7 @@ def predict(image_path, model, device, topk=5):
     image = image.to(device)
     
     # to make sure no drop; otherwise, the output is random
-    
+    model.to(device)
     with torch.no_grad ():
         output = model.forward(image)
         
@@ -59,23 +60,21 @@ def predict(image_path, model, device, topk=5):
 
 def main(): 
     args = parse_args()
-    device = args.gpu
-    model = load_checkpoint(args.checkpoint)
+    device = torch.device("cuda" if torch.cuda.is_available() and args.gpu else "cpu")
+    model = load_checkpoint(args.save_path)
     cat_to_name = load_cat_names(args.category_names)
     
     img_path = args.pathname
-    top_p, classes = predict(img_path, model, device, topk=5)
-    labels = [cat_to_name[str(index)] for index in classes]
+    top_p, classes = predict(img_path, model, device, cat_to_name, topk=5)
+
     print('File selected: ' + img_path)
-    
-    print(labels)
-    print(top_p)
-    
+    flower_class = classes[0]
+    print(f' The Image is of flower is of class: {flower_class}')
     # According to user this prints out top k classes and probs(top_p) 
     i=0 
     
-    while i < len(labels):
-        print("{} with a probability of {}".format(labels[i], top_p[i]))
+    while i < len(top_p):
+        print("\n {} with a probability of {}".format(classes[i], top_p[i]))
         i += 1
 
 if __name__ == "__main__":

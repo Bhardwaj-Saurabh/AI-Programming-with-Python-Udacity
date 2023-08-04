@@ -11,9 +11,6 @@ from utils import save_checkpoint
 # check GPU if availabale for MAC M1 
 #device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
 
-# check GPU if availabale for MAC M1 
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
 #Hyper parameters
 img_dim_H = 256
 img_dim_W = 256
@@ -26,15 +23,15 @@ batch_size_test = 10
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Training")
-    parser.add_argument('--data_dir', action='store')
-    parser.add_argument('--arch', dest='arch', default='vgg19')
+    parser.add_argument('--data_dir', action='store', default='../flowers')
+    parser.add_argument('--arch', dest='arch', default='vgg19', choices=['vgg19', 'densenet121'])
     parser.add_argument('--epochs', dest='epochs', default='3')
     parser.add_argument('--learning_rate', dest='learning_rate', default='0.001')
-    parser.add_argument('--use_cuda', action='store', default='False')
+    parser.add_argument('--gpu', action='store', default='False')
     parser.add_argument('--save_dir', dest="save_dir", action="store", default="checkpoint.pth")
     return parser.parse_args()
 
-def train(n_epochs, trainloader, validloader, model, optimizer, criterion, use_cuda):
+def train(n_epochs, trainloader, validloader, model, optimizer, criterion, device):
     """returns trained model"""
     # initialize tracker for minimum validation loss
     running_train_loss = []
@@ -48,11 +45,12 @@ def train(n_epochs, trainloader, validloader, model, optimizer, criterion, use_c
         ###################
         # train the model #
         ###################
+        model.to(device)
         model.train()
         for batch_idx, (data, target) in enumerate(trainloader):
             # move to GPU
-            if use_cuda:
-                data, target = data.to(device), target.to(device)
+
+            data, target = data.to(device), target.to(device)
                 
             ## find the loss and update the model parameters accordingly
             optimizer.zero_grad()
@@ -87,8 +85,8 @@ def train(n_epochs, trainloader, validloader, model, optimizer, criterion, use_c
 
         for batch_idx, (data, target) in enumerate(validloader):
             # move to GPU
-            if use_cuda:
-                data, target = data.to(device), target.to(device)
+
+            data, target = data.to(device), target.to(device)
             ## find the loss and update the model parameters accordingly
             ## update the average validation loss
             with torch.no_grad():
@@ -120,8 +118,11 @@ def train(n_epochs, trainloader, validloader, model, optimizer, criterion, use_c
             
 def main():
     args = parse_args()
-    
-    data_dir = '../flowers'
+    # check GPU if availabale for MAC M1 
+    #device = torch.device("cuda" if torch.cuda.is_available() and args.gpu else "cpu")
+    # check GPU if availabale for MAC M1 
+    device = torch.device("mps" if torch.backends.mps.is_available() and args.gpu  else "cpu")
+    data_dir = args.data_dir
     train_dir = data_dir + '/train'
     valid_dir = data_dir + '/valid'
     test_dir = data_dir + '/test'
@@ -156,22 +157,37 @@ def main():
     valid_loader = torch.utils.data.DataLoader(valid_data, batch_size=batch_size_val, shuffle=True)
     test_loader = torch.utils.data.DataLoader(test_data, batch_size=batch_size_test, shuffle=False)
    
-    model = getattr(models, args.arch)(pretrained=True)
-        
-    for param in model.parameters():
-        param.requires_grad = False
+    
     
 
     # define classifier for transfer learning
-    classifier = nn.Sequential(OrderedDict([
-                        ('fc1', nn.Linear(25088, 2048)),
-                        ('relu', nn.ReLU()),
-                        ('fc2', nn.Linear(2048, 256)),
-                        ('relu', nn.ReLU()),
-                        ('fc3', nn.Linear(256, 102)),
-                        ('output', nn.LogSoftmax(dim=1))
-                        ]))
 
+    if args.arch == 'vgg19':
+        model = models.vgg19(pretrained=True)
+        
+        for param in model.parameters():
+            param.requires_grad = False
+
+        classifier = nn.Sequential(OrderedDict([
+                            ('fc1', nn.Linear(25088, 2048)),
+                            ('relu', nn.ReLU()),
+                            ('fc2', nn.Linear(2048, 256)),
+                            ('relu', nn.ReLU()),
+                            ('fc3', nn.Linear(256, 102)),
+                            ('output', nn.LogSoftmax(dim=1))
+                            ]))
+    else:
+        model = models.densenet121(pretrained=True)
+        # Freeze parameters so we don't backprop through them
+        for param in model.parameters():
+            param.requires_grad = False
+        classifier = nn.Sequential(OrderedDict([
+                                ('fc1', nn.Linear(1024, 256)),
+                                ('relu', nn.ReLU()),
+                                ('dropout', nn.Dropout(0.2)),
+                                ('fc2', nn.Linear(256, 102)),
+                                ('output', nn.LogSoftmax(dim=1))
+                                ]))
 
     # Update the classifier in the model    
     model.classifier = classifier
@@ -182,12 +198,11 @@ def main():
     epochs = int(args.epochs)
     class_index = train_data.class_to_idx
     # Get the gpu settings
-    use_cuda = args.use_cuda
-    train(epochs, train_loader, valid_loader, model, optimizer, criterion, use_cuda=use_cuda)
+    train(epochs, train_loader, valid_loader, model, optimizer, criterion, device)
     model.class_to_idx = class_index
     # New save location
     path = args.save_dir  
-    save_checkpoint(path, model, optimizer, classifier)
+    save_checkpoint(path, model, optimizer, args)
 
 if __name__ == "__main__":
     main()
